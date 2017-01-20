@@ -19,134 +19,134 @@
 #define _PEER_HXX_
 
 namespace cornerstone {
-    class peer {
+    class CRaftPeer {
     public:
-        peer(const CServerConfig& config, const SContext& ctx, CTimerTask<peer&>::executor& hb_exec)
-            : config_(config),
-            scheduler_(ctx.m_Scheduler),
-            rpc_(ctx.m_RpcCliFactory.CreateClient(config.GetEndpoint())),
-            current_hb_interval_(ctx.m_Params->m_iHeartbeatInterval),
-            hb_interval_(ctx.m_Params->m_iHeartbeatInterval),
-            rpc_backoff_(ctx.m_Params->m_iRpcFailureBackoff),
-            max_hb_interval_(ctx.m_Params->MaxHbInterval()),
-            next_log_idx_(0),
-            matched_idx_(0),
-            busy_flag_(false),
-            pending_commit_flag_(false),
-            hb_enabled_(false),
-            hb_task_(cs_new<CTimerTask<peer&>, CTimerTask<peer&>::executor&, peer&>(hb_exec, *this)),
-            snp_sync_ctx_(),
-            lock_(){
+        CRaftPeer(const CServerConfig& config, const SRaftContext& ctx, CTimerTask<CRaftPeer&>::executor& hb_exec)
+            : m_Config(config),
+            m_Scheduler(ctx.m_Scheduler),
+            m_Rpc(ctx.m_RpcCliFactory.CreateClient(config.GetEndpoint())),
+            m_iCurrentHbInterval(ctx.m_Params->m_iHeartbeatInterval),
+            m_iHbInterval(ctx.m_Params->m_iHeartbeatInterval),
+            m_iRpcBackoff(ctx.m_Params->m_iRpcFailureBackoff),
+            m_iMaxHbInterval(ctx.m_Params->MaxHbInterval()),
+            m_ulNextLogIndex(0),
+            m_ulMatchedIndex(0),
+            m_bBusyFlag(false),
+            m_bPendingCommitFlag(false),
+            m_bHbEnabled(false),
+            m_HbTask(cs_new<CTimerTask<CRaftPeer&>, CTimerTask<CRaftPeer&>::executor&, CRaftPeer&>(hb_exec, *this)),
+            m_SnapshotSyncContext(),
+            m_Mutex(){
         }
 
-    __nocopy__(peer)
+    __nocopy__(CRaftPeer)
     
     public:
         int32 get_id() const {
-            return config_.GetId();
+            return m_Config.GetId();
         }
 
         const CServerConfig& get_config() {
-            return config_;
+            return m_Config;
         }
 
         CPtr<CDelayedTask>& get_hb_task() {
-            return hb_task_;
+            return m_HbTask;
         }
 
         std::mutex& get_lock() {
-            return lock_;
+            return m_Mutex;
         }
 
         int32 get_current_hb_interval() const {
-            return current_hb_interval_;
+            return m_iCurrentHbInterval;
         }
 
         bool make_busy() {
             bool f = false;
-            return busy_flag_.compare_exchange_strong(f, true);
+            return m_bBusyFlag.compare_exchange_strong(f, true);
         }
 
         void set_free() {
-            busy_flag_.store(false);
+            m_bBusyFlag.store(false);
         }
 
         bool is_hb_enabled() const {
-            return hb_enabled_;
+            return m_bHbEnabled;
         }
 
         void enable_hb(bool enable) {
-            hb_enabled_ = enable;
+            m_bHbEnabled = enable;
             if (!enable) {
-                scheduler_.Cancel(hb_task_);
+                m_Scheduler.Cancel(m_HbTask);
             }
         }
 
         ulong get_next_log_idx() const {
-            return next_log_idx_;
+            return m_ulNextLogIndex;
         }
 
         void set_next_log_idx(ulong idx) {
-            next_log_idx_ = idx;
+            m_ulNextLogIndex = idx;
         }
 
         ulong get_matched_idx() const {
-            return matched_idx_;
+            return m_ulMatchedIndex;
         }
 
         void set_matched_idx(ulong idx) {
-            matched_idx_ = idx;
+            m_ulMatchedIndex = idx;
         }
 
         void set_pending_commit() {
-            pending_commit_flag_.store(true);
+            m_bPendingCommitFlag.store(true);
         }
 
         bool clear_pending_commit() {
             bool t = true;
-            return pending_commit_flag_.compare_exchange_strong(t, false);
+            return m_bPendingCommitFlag.compare_exchange_strong(t, false);
         }
 
         void set_snapshot_in_sync(const CPtr<CSnapshot>& s) {
             if (s == nilptr) {
-                snp_sync_ctx_.reset();
+                m_SnapshotSyncContext.reset();
             }
             else {
-                snp_sync_ctx_ = cs_new<CSnapshotSyncContext>(s);
+                m_SnapshotSyncContext = cs_new<CSnapshotSyncContext>(s);
             }
         }
 
         CPtr<CSnapshotSyncContext> get_snapshot_sync_ctx() const {
-            return snp_sync_ctx_;
+            return m_SnapshotSyncContext;
         }
 
         void slow_down_hb() {
-            current_hb_interval_ = std::min(max_hb_interval_, current_hb_interval_ + rpc_backoff_);
+            m_iCurrentHbInterval = std::min(m_iMaxHbInterval, m_iCurrentHbInterval + m_iRpcBackoff);
         }
 
         void resume_hb_speed() {
-            current_hb_interval_ = hb_interval_;
+            m_iCurrentHbInterval = m_iHbInterval;
         }
 
         void send_req(CPtr<CRequestMessage>& req, rpc_handler& handler);
     private:
         void handle_rpc_result(CPtr<CRequestMessage>& req, CPtr<rpc_result>& pending_result, CPtr<CResponseMsg>& resp, CPtr<CRpcException>& err);
     private:
-        const CServerConfig& config_;
-        CDelayedTaskScheduler& scheduler_;
-        CPtr<CRpcClient> rpc_;
-        int32 current_hb_interval_;
-        int32 hb_interval_;
-        int32 rpc_backoff_;
-        int32 max_hb_interval_;
-        ulong next_log_idx_;
-        ulong matched_idx_;
-        std::atomic_bool busy_flag_;
-        std::atomic_bool pending_commit_flag_;
-        bool hb_enabled_;
-        CPtr<CDelayedTask> hb_task_;
-        CPtr<CSnapshotSyncContext> snp_sync_ctx_;
-        std::mutex lock_;
+        const CServerConfig& m_Config;
+        CDelayedTaskScheduler& m_Scheduler;
+        CPtr<CRpcClient> m_Rpc;
+        int32 m_iCurrentHbInterval;
+        int32 m_iHbInterval;
+        int32 m_iRpcBackoff;
+        int32 m_iMaxHbInterval;
+        ulong m_ulNextLogIndex;
+        ulong m_ulMatchedIndex;
+        std::atomic_bool m_bBusyFlag;
+        std::atomic_bool m_bPendingCommitFlag;
+        bool m_bHbEnabled;
+        CPtr<CDelayedTask> m_HbTask;
+        CPtr<CSnapshotSyncContext> m_SnapshotSyncContext;
+        std::mutex m_Mutex;
     };
 }
 

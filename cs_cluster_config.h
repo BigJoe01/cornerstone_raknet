@@ -61,7 +61,7 @@ namespace cornerstone {
             return CPtr<CServerConfig>();
         }
 
-        CPtr<CBuffer> Serialize();
+        CPtr<CBuffer> Serialize() const;
     private:
         ulong m_LogIndex;
         ulong m_PrevLogIndex;

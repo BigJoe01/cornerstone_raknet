@@ -43,7 +43,7 @@ static const char* __msg_type_str[] = {
     "install_snapshot_response"
 };
 
-CPtr<CResponseMsg> CRaftServer::process_req(CRequestMessage& req) {
+CPtr<CResponseMsg> CRaftServer::ProcessRequest(CRequestMessage& req) {
     recur_lock(lock_);
     l_.Debug(
         lstrfmt("Receive a %s message from %d with LastLogIndex=%llu, LastLogTerm=%llu, EntriesLength=%d, CommitIndex=%llu and Term=%llu")
@@ -293,7 +293,7 @@ void CRaftServer::request_append_entries() {
     }
 }
 
-bool CRaftServer::request_append_entries(peer& p) {
+bool CRaftServer::request_append_entries(CRaftPeer& p) {
     if (p.make_busy()) {
         CPtr<CRequestMessage> msg = create_append_entries_req(p);
         p.send_req(msg, resp_handler_);
@@ -349,7 +349,7 @@ void CRaftServer::handle_append_entries_resp(CResponseMsg& resp) {
 
     // if there are pending logs to be synced or commit index need to be advanced, continue to send appendEntries to this peer
     bool need_to_catchup = true;
-    CPtr<peer> p = it->second;
+    CPtr<CRaftPeer> p = it->second;
     if (resp.GetAccepted()) {
         {
             std::lock_guard<std::mutex>(p->get_lock());
@@ -398,7 +398,7 @@ void CRaftServer::handle_install_snapshot_resp(CResponseMsg& resp) {
 
     // if there are pending logs to be synced or commit index need to be advanced, continue to send appendEntries to this peer
     bool need_to_catchup = true;
-    CPtr<peer> p = it->second;
+    CPtr<CRaftPeer> p = it->second;
     if (resp.GetAccepted()) {
         std::lock_guard<std::mutex> guard(p->get_lock());
         CPtr<CSnapshotSyncContext> sync_ctx = p->get_snapshot_sync_ctx();
@@ -455,7 +455,7 @@ void CRaftServer::handle_voting_resp(CResponseMsg& resp) {
     }
 }
 
-void CRaftServer::handle_hb_timeout(peer& p) {
+void CRaftServer::handle_hb_timeout(CRaftPeer& p) {
     recur_lock(lock_);
     l_.Debug(sstrfmt("Heartbeat timeout for %d").fmt(p.get_id()));
     if (role_ == EServerRole::leader) {
@@ -527,7 +527,7 @@ void CRaftServer::become_leader() {
     request_append_entries();
 }
 
-void CRaftServer::enable_hb_for_peer(peer& p) {
+void CRaftServer::enable_hb_for_peer(CRaftPeer& p) {
     p.enable_hb(true);
     p.resume_hb_speed();
     scheduler_.Schedule(p.get_hb_task(), p.get_current_hb_interval());
@@ -664,7 +664,7 @@ void CRaftServer::on_snapshot_completed(CPtr<CSnapshot>& s, bool result, CPtr<st
     snp_in_progress_.store(false);
 }
 
-CPtr<CRequestMessage> CRaftServer::create_append_entries_req(peer& p) {
+CPtr<CRequestMessage> CRaftServer::create_append_entries_req(CRaftPeer& p) {
     ulong cur_nxt_idx(0L);
     ulong commit_idx(0L);
     ulong last_log_idx(0L);
@@ -749,8 +749,8 @@ void CRaftServer::reconfigure(const CPtr<CClusterConfig>& new_config) {
 
     for (std::vector<CPtr<CServerConfig>>::const_iterator it = srvs_added.begin(); it != srvs_added.end(); ++it) {
         CPtr<CServerConfig> srv_added(*it);
-        CTimerTask<peer&>::executor exec = (CTimerTask<peer&>::executor)std::bind(&CRaftServer::handle_hb_timeout, this, std::placeholders::_1);
-        CPtr<peer> p = cs_new<peer, CServerConfig&, SContext&, CTimerTask<peer&>::executor&>(*srv_added, *ctx_, exec);
+        CTimerTask<CRaftPeer&>::executor exec = (CTimerTask<CRaftPeer&>::executor)std::bind(&CRaftServer::handle_hb_timeout, this, std::placeholders::_1);
+        CPtr<CRaftPeer> p = cs_new<CRaftPeer, CServerConfig&, SRaftContext&, CTimerTask<CRaftPeer&>::executor&>(*srv_added, *ctx_, exec);
         p->set_next_log_idx(log_store_->NextSlot());
         peers_.insert(std::make_pair(srv_added->GetId(), p));
         l_.Info(sstrfmt("server %d is added to cluster").fmt(srv_added->GetId()));
@@ -1002,7 +1002,7 @@ void CRaftServer::handle_ext_resp_err(CRpcException& err) {
     if (req->GetType() == EMsgType::sync_log_request ||
         req->GetType() == EMsgType::join_cluster_request ||
         req->GetType() == EMsgType::leave_cluster_request) {
-        CPtr<peer> p;
+        CPtr<CRaftPeer> p;
         if (req->GetType() == EMsgType::leave_cluster_request) {
             peer_itor pit = peers_.find(req->GetDest());
             if (pit != peers_.end()) {
@@ -1060,7 +1060,7 @@ void CRaftServer::handle_ext_resp_err(CRpcException& err) {
     }
 }
 
-void CRaftServer::on_retryable_req_err(CPtr<peer>& p, CPtr<CRequestMessage>& req) {
+void CRaftServer::on_retryable_req_err(CPtr<CRaftPeer>& p, CPtr<CRequestMessage>& req) {
     l_.Debug(sstrfmt("retry the request %s for %d").fmt(__msg_type_str[req->GetType()], p->get_id()));
     p->send_req(req, ex_resp_handler_);
 }
@@ -1096,7 +1096,7 @@ CPtr<CResponseMsg> CRaftServer::handle_rm_srv_req(CRequestMessage& req) {
         return resp;
     }
 
-    CPtr<peer> p = pit->second;
+    CPtr<CRaftPeer> p = pit->second;
     CPtr<CRequestMessage> leave_req(cs_new<CRequestMessage>(state_->GetTerm(), EMsgType::leave_cluster_request, id_, srv_id, 0, log_store_->NextSlot() - 1, quick_commit_idx_));
     p->send_req(leave_req, ex_resp_handler_);
     resp->Accept(log_store_->NextSlot());
@@ -1129,8 +1129,8 @@ CPtr<CResponseMsg> CRaftServer::handle_add_srv_req(CRequestMessage& req) {
     }
 
     conf_to_add_ = std::move(srv_conf);
-    CTimerTask<peer&>::executor exec = (CTimerTask<peer&>::executor)std::bind(&CRaftServer::handle_hb_timeout, this, std::placeholders::_1);
-    srv_to_join_ = cs_new<peer, CServerConfig&, SContext&, CTimerTask<peer&>::executor&>(*conf_to_add_, *ctx_, exec);
+    CTimerTask<CRaftPeer&>::executor exec = (CTimerTask<CRaftPeer&>::executor)std::bind(&CRaftServer::handle_hb_timeout, this, std::placeholders::_1);
+    srv_to_join_ = cs_new<CRaftPeer, CServerConfig&, SRaftContext&, CTimerTask<CRaftPeer&>::executor&>(*conf_to_add_, *ctx_, exec);
     invite_srv_to_join_cluster();
     resp->Accept(log_store_->NextSlot());
     return resp;
@@ -1248,7 +1248,7 @@ int32 CRaftServer::get_snapshot_sync_block_size() const {
     return block_size == 0 ? default_snapshot_sync_block_size : block_size;
 }
 
-CPtr<CRequestMessage> CRaftServer::create_sync_snapshot_req(peer& p, ulong last_log_idx, ulong term, ulong commit_idx) {
+CPtr<CRequestMessage> CRaftServer::create_sync_snapshot_req(CRaftPeer& p, ulong last_log_idx, ulong term, ulong commit_idx) {
     std::lock_guard<std::mutex> guard(p.get_lock());
     CPtr<CSnapshotSyncContext> sync_ctx = p.get_snapshot_sync_ctx();
     CPtr<CSnapshot> snp;
@@ -1374,7 +1374,7 @@ void CRaftServer::commit_in_bg() {
 }
 
 
-CPtr<CAsyncResult<bool>> CRaftServer::add_srv(const CServerConfig& srv) {
+CPtr<CAsyncResult<bool>> CRaftServer::AddServer(const CServerConfig& srv) {
     CPtr<CBuffer> buf(srv.Serialize());
     CPtr<CLogEntry> log(cs_new<CLogEntry>(0, buf, ELogValueType::e_ClusterServer));
     CPtr<CRequestMessage> req(cs_new<CRequestMessage>((ulong)0, EMsgType::add_server_request, 0, 0, (ulong)0, (ulong)0, (ulong)0));
@@ -1382,7 +1382,7 @@ CPtr<CAsyncResult<bool>> CRaftServer::add_srv(const CServerConfig& srv) {
     return send_msg_to_leader(req);
 }
 
-CPtr<CAsyncResult<bool>> CRaftServer::append_entries(const std::vector<CPtr<CBuffer>>& logs) {
+CPtr<CAsyncResult<bool>> CRaftServer::AppendEntries(const std::vector<CPtr<CBuffer>>& logs) {
     if (logs.size() == 0) {
         bool result(false);
         return cs_new<CAsyncResult<bool>>(result);
@@ -1397,7 +1397,7 @@ CPtr<CAsyncResult<bool>> CRaftServer::append_entries(const std::vector<CPtr<CBuf
     return send_msg_to_leader(req);
 }
 
-CPtr<CAsyncResult<bool>> CRaftServer::remove_srv(const int srv_id) {
+CPtr<CAsyncResult<bool>> CRaftServer::RemoveServer(const int srv_id) {
     CPtr<CBuffer> buf(CBuffer::alloc(sz_int));
     buf->Put(srv_id);
     buf->Pos(0);
@@ -1417,7 +1417,7 @@ CPtr<CAsyncResult<bool>> CRaftServer::send_msg_to_leader(CPtr<CRequestMessage>& 
     }
 
     if (leader_id == id_) {
-        CPtr<CResponseMsg> resp = process_req(*req);
+        CPtr<CResponseMsg> resp = ProcessRequest(*req);
         result = resp->GetAccepted();
         return cs_new<CAsyncResult<bool>>(result);
     }
@@ -1460,7 +1460,7 @@ CPtr<CAsyncResult<bool>> CRaftServer::send_msg_to_leader(CPtr<CRequestMessage>& 
     return presult;
 }
 
-CRaftServer::CRaftServer(SContext* ctx)
+CRaftServer::CRaftServer(SRaftContext* ctx)
         : leader_(-1),
             id_(ctx->m_StateManager.ServerId()),
             votes_responded_(0),
@@ -1533,8 +1533,8 @@ CRaftServer::CRaftServer(SContext* ctx)
             std::list<CPtr<CServerConfig>>& srvs(config_->GetServers());
             for (CClusterConfig::srv_itor it = srvs.begin(); it != srvs.end(); ++it) {
                 if ((*it)->GetId() != id_) {
-         	        CTimerTask<peer&>::executor exec = (CTimerTask<peer&>::executor)std::bind(&CRaftServer::handle_hb_timeout, this, std::placeholders::_1);
-                    peers_.insert(std::make_pair((*it)->GetId(), cs_new<peer, CServerConfig&, SContext&, CTimerTask<peer&>::executor&>(**it, *ctx_, exec)));
+         	        CTimerTask<CRaftPeer&>::executor exec = (CTimerTask<CRaftPeer&>::executor)std::bind(&CRaftServer::handle_hb_timeout, this, std::placeholders::_1);
+                    peers_.insert(std::make_pair((*it)->GetId(), cs_new<CRaftPeer, CServerConfig&, SRaftContext&, CTimerTask<CRaftPeer&>::executor&>(**it, *ctx_, exec)));
                 }
             }
 

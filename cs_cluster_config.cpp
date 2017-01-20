@@ -19,7 +19,7 @@
 
 using namespace cornerstone;
 
-CPtr<CBuffer> CClusterConfig::Serialize() {
+CPtr<CBuffer> CClusterConfig::Serialize() const {
     size_t sz = 2 * sz_ulong + sz_int;
     std::vector<CPtr<CBuffer>> srv_buffs;
     for (CClusterConfig::const_srv_itor it = m_Servers.begin(); it != m_Servers.end(); ++it) {
@@ -45,7 +45,7 @@ CPtr<CClusterConfig> CClusterConfig::Deserialize(CBuffer& buf) {
     ulong prev_log_idx = buf.GetULong();
     int32 cnt = buf.GetInt();
     CPtr<CClusterConfig> conf = cs_new<CClusterConfig>(log_idx, prev_log_idx);
-    while (cnt -- > 0) {
+    while (cnt-- > 0) {
         conf->GetServers().push_back(CServerConfig::Deserialize(buf));
     }
 

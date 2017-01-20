@@ -19,13 +19,13 @@
 
 using namespace cornerstone;
 
-void peer::send_req(CPtr<CRequestMessage>& req, rpc_handler& handler) {
+void CRaftPeer::send_req(CPtr<CRequestMessage>& req, rpc_handler& handler) {
     CPtr<rpc_result> pending = cs_new<rpc_result>(handler);
-    rpc_handler h = (rpc_handler)std::bind(&peer::handle_rpc_result, this, req, pending, std::placeholders::_1, std::placeholders::_2);
-    rpc_->Send(req, h);
+    rpc_handler h = (rpc_handler)std::bind(&CRaftPeer::handle_rpc_result, this, req, pending, std::placeholders::_1, std::placeholders::_2);
+    m_Rpc->Send(req, h);
 }
 
-void peer::handle_rpc_result(CPtr<CRequestMessage>& req, CPtr<rpc_result>& pending_result, CPtr<CResponseMsg>& resp, CPtr<CRpcException>& err) {
+void CRaftPeer::handle_rpc_result(CPtr<CRequestMessage>& req, CPtr<rpc_result>& pending_result, CPtr<CResponseMsg>& resp, CPtr<CRpcException>& err) {
     if (err == nilptr) {
         if (req->GetType() == EMsgType::append_entries_request ||
             req->GetType() == EMsgType::install_snapshot_request) {

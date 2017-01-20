@@ -19,12 +19,12 @@
 #define _CONTEXT_HXX_
 
 namespace cornerstone {
-    struct SContext {
+    struct SRaftContext {
     public:
-        SContext(CStateManager& mgr, CStateMachine& m, CRpcListener& listener, CLogger& l, CRpcClientFactory& cli_factory, CDelayedTaskScheduler& scheduler, CRaftParams* params = nilptr)
+        SRaftContext(CStateManager& mgr, CStateMachine& m, CRpcListener& listener, CLogger& l, CRpcClientFactory& cli_factory, CDelayedTaskScheduler& scheduler, CRaftParams* params = nilptr)
             : m_StateManager(mgr), m_StateMachine(m), m_RpcListener(listener), m_Logger(l), m_RpcCliFactory(cli_factory), m_Scheduler(scheduler), m_Params(params == nilptr ? new CRaftParams : params) {}
 
-    __nocopy__(SContext)
+    __nocopy__(SRaftContext)
     public:
         CStateManager& m_StateManager;
         CStateMachine& m_StateMachine;

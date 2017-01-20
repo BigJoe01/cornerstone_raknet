@@ -23,8 +23,10 @@ namespace cornerstone {
     public:
         CServerState()
             : m_ulTerm(0L), m_ulCommitIndex(0L), m_iVotedFor(-1) {}
+		CServerState( unsigned long ulTerm, unsigned long ulCommitIndex, int32 iVotedFor )
+			: m_ulTerm(0L), m_ulCommitIndex(ulCommitIndex), m_iVotedFor(iVotedFor) {}
 
-        __nocopy__(CServerState)
+		__nocopy__(CServerState)
 
     public:
         ulong GetTerm() const { return m_ulTerm; }
@@ -39,10 +41,30 @@ namespace cornerstone {
         int  GetVotedFor() const { return m_iVotedFor; }
         void SetVotedFor(int voted_for) { m_iVotedFor = voted_for; }
         void IncTerm() { m_ulTerm += 1; }
+		
+		CPtr<CBuffer> Serialize() const
+		{
+			size_t sz = sz_ulong + sz_ulong + sz_int;
+			CPtr<CBuffer> result = CBuffer::alloc(sz);
+			result->Put(m_ulTerm);
+			result->Put(m_ulCommitIndex);
+			result->Put(m_iVotedFor);
+			result->Pos(0);
+			return result;
+		}
+		
+		static CPtr<CServerState> Deserialize( CBuffer& Buffer )
+		{
+			ulong ulTerm = Buffer.GetULong();
+			ulong ulCommitIndex = Buffer.GetULong();
+			int32 iVotedFor = Buffer.GetInt();
+			return cs_new<CServerState>(ulTerm, ulCommitIndex,iVotedFor);
+		}
+
     private:
         ulong m_ulTerm;
         ulong m_ulCommitIndex;
-        int m_iVotedFor;
+        int32 m_iVotedFor;
     };
 }
 

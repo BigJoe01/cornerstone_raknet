@@ -21,21 +21,21 @@
 namespace cornerstone {
     class CRaftServer {
     public:
-        CRaftServer(SContext* ctx);
+        CRaftServer(SRaftContext* ctx);
         virtual ~CRaftServer();
 	    __nocopy__(CRaftServer)
     
     public:
-        CPtr<CResponseMsg> process_req(CRequestMessage& req);
+        CPtr<CResponseMsg> ProcessRequest(CRequestMessage& req);
 
-        CPtr<CAsyncResult<bool>> add_srv(const CServerConfig& srv);
+        CPtr<CAsyncResult<bool>> AddServer(const CServerConfig& srv);
 
-        CPtr<CAsyncResult<bool>> remove_srv(const int srv_id);
+        CPtr<CAsyncResult<bool>> RemoveServer(const int srv_id);
 
-        CPtr<CAsyncResult<bool>> append_entries(const std::vector<CPtr<CBuffer>>& logs);
+        CPtr<CAsyncResult<bool>> AppendEntries(const std::vector<CPtr<CBuffer>>& logs);
 
     private:
-        typedef std::unordered_map<int32, CPtr<peer>>::const_iterator peer_itor;
+        typedef std::unordered_map<int32, CPtr<CRaftPeer>>::const_iterator peer_itor;
 
     private:
         CPtr<CResponseMsg> handle_append_entries(CRequestMessage& req);
@@ -51,32 +51,32 @@ namespace cornerstone {
         bool handle_snapshot_sync_req(CSnapshotSyncRequest& req);
         void request_vote();
         void request_append_entries();
-        bool request_append_entries(peer& p);
+        bool request_append_entries(CRaftPeer& p);
         void handle_peer_resp(CPtr<CResponseMsg>& resp, CPtr<CRpcException>& err);
         void handle_append_entries_resp(CResponseMsg& resp);
         void handle_install_snapshot_resp(CResponseMsg& resp);
         void handle_voting_resp(CResponseMsg& resp);
         void handle_ext_resp(CPtr<CResponseMsg>& resp, CPtr<CRpcException>& err);
         void handle_ext_resp_err(CRpcException& err);
-        CPtr<CRequestMessage> create_append_entries_req(peer& p);
-        CPtr<CRequestMessage> create_sync_snapshot_req(peer& p, ulong last_log_idx, ulong term, ulong commit_idx);
+        CPtr<CRequestMessage> create_append_entries_req(CRaftPeer& p);
+        CPtr<CRequestMessage> create_sync_snapshot_req(CRaftPeer& p, ulong last_log_idx, ulong term, ulong commit_idx);
         void commit(ulong target_idx);
         void snapshot_and_compact(ulong committed_idx);
         bool update_term(ulong term);
         void reconfigure(const CPtr<CClusterConfig>& new_config);
         void become_leader();
         void become_follower();
-        void enable_hb_for_peer(peer& p);
+        void enable_hb_for_peer(CRaftPeer& p);
         void restart_election_timer();
         void stop_election_timer();
-        void handle_hb_timeout(peer& peer);
+        void handle_hb_timeout(CRaftPeer& peer);
         void handle_election_timeout();
         void sync_log_to_new_srv(ulong start_idx);
         void invite_srv_to_join_cluster();
         void rm_srv_from_cluster(int32 srv_id);
         int get_snapshot_sync_block_size() const;
         void on_snapshot_completed(CPtr<CSnapshot>& s, bool result, CPtr<std::exception>& err);
-        void on_retryable_req_err(CPtr<peer>& p, CPtr<CRequestMessage>& req);
+        void on_retryable_req_err(CPtr<CRaftPeer>& p, CPtr<CRequestMessage>& req);
         ulong term_for_log(ulong log_idx);
         void commit_in_bg();
         CPtr<CAsyncResult<bool>> send_msg_to_leader(CPtr<CRequestMessage>& req);
@@ -93,11 +93,11 @@ namespace cornerstone {
         bool stopping_;
         int32 steps_to_down_;
         std::atomic_bool snp_in_progress_;
-        std::unique_ptr<SContext> ctx_;
+        std::unique_ptr<SRaftContext> ctx_;
         CDelayedTaskScheduler& scheduler_;
         CTimerTask<void>::executor election_exec_;
         CPtr<CDelayedTask> election_task_;
-        std::unordered_map<int32, CPtr<peer>> peers_;
+        std::unordered_map<int32, CPtr<CRaftPeer>> peers_;
         std::unordered_map<int32, CPtr<CRpcClient>> rpc_clients_;
         EServerRole role_;
         CPtr<CServerState> state_;
@@ -106,7 +106,7 @@ namespace cornerstone {
         CLogger& l_;
         std::function<int32()> rand_timeout_;
         CPtr<CClusterConfig> config_;
-        CPtr<peer> srv_to_join_;
+        CPtr<CRaftPeer> srv_to_join_;
         CPtr<CServerConfig> conf_to_add_;
         std::recursive_mutex lock_;
         std::mutex commit_lock_;
