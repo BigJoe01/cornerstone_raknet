@@ -3,12 +3,14 @@
 #include "BitStream.h"
 #include "GetTime.h"
 #include "DS_Queue.h"
+#include "RakSleep.h"
+
 namespace RakNet
 {
 
-	CHaClusterInterface::CHaClusterInterface()
-	{
-	}
+	CHaClusterInterface::CHaClusterInterface() 
+		: m_pRaftServer( nullptr)
+		, m_pContext( nullptr ) { }
 
 	CHaClusterInterface::~CHaClusterInterface()
 	{
@@ -17,7 +19,8 @@ namespace RakNet
 
 	void CHaClusterInterface::OnAttach()
 	{
-
+		m_StateManager.SetPeerInterface(rakPeerInterface);
+		m_StateMachine.SetPeerInterface(rakPeerInterface);
 	}
 
 	void CHaClusterInterface::OnDetach()
@@ -27,13 +30,23 @@ namespace RakNet
 
 	void CHaClusterInterface::OnRakPeerStartup()
 	{
+		m_aRpcClients.Clear( false, _FILE_AND_LINE_ );
 		m_LastCheck = GetTimeMS();
 		m_MyGuid = rakPeerInterface->GetMyGUID();
+		m_pContext = new SRaftContext( m_StateManager, m_StateMachine, *this, *m_LoggerManager.LoggerAdd( m_strLogFile, ELogLevel::eDebug ), *this, m_TaskScheduler, &m_RaftParams );
+		m_pRaftServer =  OP_NEW_1<CRaftServer>( _FILE_AND_LINE_, m_pContext );
 	}
 
 	void CHaClusterInterface::OnRakPeerShutdown()
 	{
-
+		m_TaskScheduler.Clear();
+		m_LoggerManager.Clear();
+		if ( m_pRaftServer)
+			OP_DELETE<CRaftServer>( m_pRaftServer, _FILE_AND_LINE_ );
+		if ( m_pContext )
+			OP_DELETE<SRaftContext>( m_pContext, _FILE_AND_LINE_ );
+		
+		m_aRpcClients.Clear( false, _FILE_AND_LINE_ );
 	}
 
 
@@ -42,29 +55,18 @@ namespace RakNet
 
 	}
 
-	//---------------------------------- CORNERSTONE -----------------------------------------
-	void CHaClusterInterface::Schedule(CPtr<CDelayedTask>& task, int32 milliseconds)
-	{		
-		m_aTasks.Push( OP_NEW_3<CHaTask>( _FILE_AND_LINE_, task, milliseconds, std::bind(&CHaClusterInterface::FreeTask, this, _1) ), _FILE_AND_LINE_ );
-	}
+	//---------------------------------- CORNERSTONE CREATE NEW CLIENT -----------------------------------------
+	
+	
 
 	CPtr<CRpcClient> CHaClusterInterface::CreateClient(const std::string& endpoint)
 	{
-		return cs_new<CRpcClient>();
-		//BIGJOE modositani kell ha implementalva lesz
-	}
-
-	void CHaClusterInterface::OnCancel(CPtr<CDelayedTask>& task)
-	{
-		if (task->GetContext() != nullptr )
-			static_cast<CHaTask*>(task->GetContext())->Cancel();
-	}
-
-	CLogger* CHaClusterInterface::CreateLogger( ELogLevel::Type eLevel, const std::string& strLogFile )
-	{
-		CHaClusterFileLogger* pLogger = new CHaClusterFileLogger(*this, strLogFile, eLevel);
-		m_aLoggers.Push(pLogger, _FILE_AND_LINE_);
-		return pLogger ;
+		SystemAddress SysAddr;
+		SysAddr.FromString( endpoint.c_str() );
+		std::string strHost = SysAddr.ToString(false);
+		unsigned short usPort = SysAddr.GetPort();
+		rakPeerInterface->Connect( strHost.c_str(), usPort, nullptr, 0);
+		return cs_new<CHaClient>(rakPeerInterface, SysAddr, *this );
 	}
 
 }

@@ -5,9 +5,88 @@
 #include "DS_Queue.h"
 #include "HACluster.h"
 #include <ctime>
+#include "RakSleep.h"
 
 namespace RakNet
 {
+	//-------------------------------  State manager -------------------------------------------
+
+	CPtr<CClusterConfig> CHaStateManager::LoadConfig()
+	{
+		return CClusterConfig::Deserialize( *m_ConfigBuffer );
+	}
+
+	void CHaStateManager::SaveConfig(const CClusterConfig& config)
+	{
+		m_ConfigBuffer = config.Serialize();
+	}
+
+	void CHaStateManager::SaveState(const CServerState& state)
+	{
+		m_StateBuffer = state.Serialize();
+	}
+
+	CPtr<CServerState> CHaStateManager::ReadState()
+	{
+		return CServerState::Deserialize( *m_StateBuffer );
+	}
+
+	CPtr<CLogStore> CHaStateManager::LoadLogStore()
+	{
+		return cs_new<CFileSystemLogStore>( m_StrLogStore, -1 );
+	}
+
+	int32 CHaStateManager::ServerId()
+	{
+		return (int32) RakNetGUID::ToUint32(rakPeerInterface->GetMyGUID());
+	}
+
+	void CHaStateManager::SystemExit(const int exit_code)
+	{
+		rakPeerInterface->Shutdown( 100, 0, PacketPriority::HIGH_PRIORITY );
+	}
+
+	//-------------------------------  State machine -------------------------------------------
+
+	void CHaStateMachine::Commit(const ulong log_idx, CBuffer& data)
+	{
+
+	}
+
+	void CHaStateMachine::PreCommit(const ulong log_idx, CBuffer& data)
+	{
+
+	}
+
+	void CHaStateMachine::Rollback(const ulong log_idx, CBuffer& data)
+	{
+
+	}
+
+	void CHaStateMachine::SaveSnapshotData(CSnapshot& s, const ulong offset, CBuffer& data)
+	{
+
+	}
+
+	bool CHaStateMachine::ApplySnapshot(CSnapshot& s)
+	{
+		false;
+	}
+
+	int CHaStateMachine::ReadSnapshotData(CSnapshot& s, const ulong offset, CBuffer& data)
+	{
+		return 0;
+	}
+
+	CPtr<CSnapshot> CHaStateMachine::LastSnapshot()
+	{
+		return CPtr<CSnapshot>();
+	}
+
+	void CHaStateMachine::CreateSnapshot(CSnapshot& s, CAsyncResult<bool>::handler_type& when_done)
+	{
+
+	}
 
 	//-------------------------------  Logger class -------------------------------------------
 	CHaClusterFileLogger::CHaClusterFileLogger(CHaClusterLoggerManager& ClusterLoggerManager, const std::string& log_file, ELogLevel::Type eLevel)
@@ -18,7 +97,7 @@ namespace RakNet
 		Flush();
 		m_LogFile.flush();
 		m_LogFile.close();
-		ClusterLoggerManager.RemoveLogger(this);
+		m_LoggerManager.RemoveLogger(this);
 	}
 
 	void CHaClusterFileLogger::Debug(const std::string& log_line)
@@ -76,6 +155,50 @@ namespace RakNet
 		}
 	}
 	
+	//-------------------------------  Logger manager -------------------------------------------
+
+	CHaClusterLoggerManager::CHaClusterLoggerManager() : m_bHasRemovedLogger(false) {}
+	
+	CHaClusterLoggerManager::~CHaClusterLoggerManager()
+	{
+		Clear();
+	}
+
+
+	CHaClusterFileLogger* CHaClusterLoggerManager::LoggerAdd( const std::string& log_file, ELogLevel::Type eLevel )
+	{
+		CHaClusterFileLogger* pLogger = OP_NEW_3<CHaClusterFileLogger>( _FILE_AND_LINE_, *this, log_file, eLevel );
+		m_aLoggers.Push( pLogger, _FILE_AND_LINE_ );
+		return pLogger;
+	}
+	
+	void CHaClusterLoggerManager::RemoveLogger(CHaClusterFileLogger* pLogger)
+	{
+		unsigned int uiIndex = m_aLoggers.GetIndexOf( pLogger );
+		if ( uiIndex != MAX_UNSIGNED_LONG )
+		{
+			m_aLoggers.RemoveAtIndexFast( uiIndex );
+			m_aRemovedLoggers.Push(pLogger, _FILE_AND_LINE_ );
+			m_bHasRemovedLogger = true;
+		}
+	}
+
+	void CHaClusterLoggerManager::Progress()
+	{
+		if ( !m_bHasRemovedLogger )
+			return;
+		for( int iIndex = 0; iIndex < m_aRemovedLoggers.Size(); iIndex++ )
+			OP_DELETE<CHaClusterFileLogger>( m_aRemovedLoggers[iIndex], _FILE_AND_LINE_ );
+		m_aRemovedLoggers.Clear( true,_FILE_AND_LINE_ );
+	}
+	
+	void CHaClusterLoggerManager::Clear()
+	{
+		for( int iIndex = 0; iIndex < m_aLoggers.Size(); iIndex++ )
+			OP_DELETE<CHaClusterFileLogger>( m_aLoggers[iIndex], _FILE_AND_LINE_ );
+		m_aLoggers.Clear( true,_FILE_AND_LINE_ );
+	}
+
 
 	//-------------------------------  Sheduler -------------------------------------------
 	void CHADelayedTaskScheduler::Schedule(CPtr<CDelayedTask>& pTask, int32 iMs)
@@ -91,7 +214,7 @@ namespace RakNet
 			assert(false);
 			return;
 		}
-		pTask->m_eStatus = CHADelayedTaskScheduler::
+		//pTask->m_eStatus = CHADelayedTaskScheduler::
 	
 
 	}
@@ -158,5 +281,29 @@ namespace RakNet
 	{
 		Clear();
 	}
+
+	// Serializer helpers
+
+	void SerializeState( const CServerState& State, BitStream* pBitStream )
+	{
+		pBitStream->Write( State.GetTerm() );
+		pBitStream->Write( State.GetCommitIndex() );
+		pBitStream->Write( State.GetVotedFor() );
+	}
+	
+	void DeSerializeState( CPtr<CServerState>& State, BitStream* pBitStream )
+	{
+		int iTemp;
+		unsigned long ulTemp;
+		pBitStream->Read( ulTemp );
+		State->SetTerm( ulTemp );
+
+		pBitStream->Read( ulTemp );
+		State->SetCommitIndex( ulTemp );
+
+		pBitStream->Read( iTemp );
+		State->SetVotedFor( iTemp );
+	}
+
 
 }

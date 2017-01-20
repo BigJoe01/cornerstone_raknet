@@ -16,11 +16,78 @@
 #include "cornerstone/cornerstone.h"
 #include "DS_Queue.h"
 #include "GetTime.h"
+#include "RakPeerInterface.h"
+
 
 namespace RakNet {
 
 	using namespace cornerstone;
 	class CHaClusterInterface;
+	class CHaClusterLoggerManager;
+
+	class CHaStateManager : public CStateManager
+	{
+	public:
+		virtual CPtr<CClusterConfig> LoadConfig() override;
+		virtual void SaveConfig(const CClusterConfig& config) override;
+		virtual void SaveState(const CServerState& state) override;
+		virtual CPtr<CServerState> ReadState() override;
+		virtual CPtr<CLogStore> LoadLogStore() override;
+		virtual int32 ServerId() override;
+		virtual void SystemExit(const int exit_code) override;
+		void SetLogDir( const std::string& strLogDir ) { m_StrLogStore = strLogDir; }
+		void SetPeerInterface(RakPeerInterface* pPeer) { rakPeerInterface = pPeer;  }
+		CPtr<CBuffer> m_ConfigBuffer;
+		CPtr<CBuffer> m_StateBuffer;
+		RakPeerInterface* rakPeerInterface;
+		std::string m_StrLogStore;
+	};
+	//-------------------------------  RpcClient -------------------------------------------
+
+	class CHaStateMachine : public CStateMachine
+	{
+	public:
+		virtual void Commit(const ulong log_idx, CBuffer& data) override;
+		virtual void PreCommit(const ulong log_idx, CBuffer& data) override;
+		virtual void Rollback(const ulong log_idx, CBuffer& data) override;
+		virtual void SaveSnapshotData(CSnapshot& s, const ulong offset, CBuffer& data) override;
+		virtual bool ApplySnapshot(CSnapshot& s) override;
+		virtual int ReadSnapshotData(CSnapshot& s, const ulong offset, CBuffer& data) override;
+		virtual CPtr<CSnapshot> LastSnapshot() override;
+		virtual void CreateSnapshot(CSnapshot& s, CAsyncResult<bool>::handler_type& when_done)  override;
+		void SetRakPeerInterface(RakPeerInterface* pPeer) { rakPeerInterface = pPeer;  }
+		RakPeerInterface* rakPeerInterface;
+	};
+
+	//-------------------------------  RpcClient -------------------------------------------
+	class CHaClient : public CRpcClient
+	{
+		public:
+		RakPeerInterface* rakPeerInterface;
+		CHaClusterInterface& m_Interface;
+
+		CHaClient( RakPeerInterface* pPeer, const SystemAddress& SysAddr, CHaClusterInterface& Interface ) 
+			: rakPeerInterface(pPeer)
+			, m_SysAddr( SysAddr )
+			, m_Interface( Interface )
+		{
+			// TODO mutex?
+			Interface.m_aRpcClients.Push(this, _FILE_AND_LINE_ );
+		}
+		
+		~CHaClient()
+		{
+			unsigned long ulIndex = m_Interface.m_aRpcClients.GetIndexOf( this );
+			if ( ulIndex != MAX_UNSIGNED_LONG )
+			{
+				m_Interface.m_aRpcClients.RemoveAtIndex( ulIndex );
+			}
+		}
+
+		void Send(CPtr<CRequestMessage>& req, rpc_handler& when_done) override { }
+		SystemAddress m_SysAddr;
+
+	};
 
 	//-------------------------------  Logger class -------------------------------------------
 	class CHaClusterFileLogger : public CLogger {
@@ -45,8 +112,21 @@ namespace RakNet {
 	class CHaClusterLoggerManager
 	{
 	public:
+		CHaClusterLoggerManager();
+		~CHaClusterLoggerManager();
+
+		CHaClusterFileLogger* LoggerAdd( const std::string& log_file, ELogLevel::Type eLevel );
 		void RemoveLogger(CHaClusterFileLogger* pLogger);
+		void Progress();
+		void Clear();
+	private:
+		bool m_bHasRemovedLogger;
+		DataStructures::List<CHaClusterFileLogger*> m_aLoggers;
+		DataStructures::List<CHaClusterFileLogger*> m_aRemovedLoggers;
 	};
+
+	static  void SerializeState( const CServerState& State, BitStream* pBitStream );
+	static  void DeSerializeState( CPtr<CServerState>& State, BitStream* pBitStream );
 
 	//-------------------------------  Delayed task scheduler -------------------------------------------
 

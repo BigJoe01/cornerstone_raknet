@@ -13,21 +13,34 @@
 #include "PluginInterface2.h"
 #include "DS_List.h"
 #include "RakNetTime.h"
+#include "HAClusterHelper.h"
 #include "cornerstone/cornerstone.h"
+#include "cs_fs_log_store.h"
+
 namespace RakNet {
 	
 	using namespace cornerstone;
 	using namespace std::placeholders;
 
+
+	class CHaClient;
+
 class CHaClusterFileLogger;
 
-
-
-class RAK_DLL_EXPORT CHaClusterInterface : public PluginInterface2
+class RAK_DLL_EXPORT CHaClusterInterface
+	: public PluginInterface2
+	, public CRpcListener
+	, public CRpcClientFactory
 {
+	friend CHaClient;
 public:
-	CHaClusterInterface();
+	CHaClusterInterface( );
 	virtual ~CHaClusterInterface();
+
+	void SetLogStorePath( const std::string& strDir ) { m_StateManager.m_StrLogStore = strDir; }
+	std::string GetLogStorePath() { return m_StateManager.m_StrLogStore; }
+	CRaftParams& GetParams() { return m_RaftParams; }
+	void SetLogFilePath( const std::string& strFile ) { m_strLogFile = strFile; }
 
 	//-------------------------- CORNERSTONE IMP ----------------------------------------------
 protected:
@@ -49,10 +62,26 @@ protected:
 	virtual void OnInternalPacket(InternalPacket *internalPacket, unsigned frameNumber, SystemAddress remoteSystemAddress, RakNet::TimeMS time, int isSend) { (void)internalPacket; (void)frameNumber; (void)remoteSystemAddress; (void)time; (void)isSend; }
 	virtual void OnAck(unsigned int messageNumber, SystemAddress remoteSystemAddress, RakNet::TimeMS time) { (void)messageNumber; (void)remoteSystemAddress; (void)time; }
 	virtual void OnPushBackPacket(const char *data, const BitSize_t bitsUsed, SystemAddress remoteSystemAddress) { (void)data; (void)bitsUsed; (void)remoteSystemAddress; }
-	
-	void FreeTask(void* ptr) {}
+
+	// RpcListener
+	virtual void Listen(CPtr<msg_handler>& handler) override {}
+	virtual void Stop() override {}
+
+
+	// client factory
+	virtual CPtr<CRpcClient> CreateClient(const std::string& endpoint) override;
+	CHaStateManager m_StateManager;
+	CHaStateMachine m_StateMachine;
+	DataStructures::List<CHaClient*> m_aRpcClients;
+	CHADelayedTaskScheduler m_TaskScheduler;
+	CHaClusterLoggerManager m_LoggerManager;
+	SRaftContext* m_pContext;
+	CRaftServer* m_pRaftServer;
+	CRaftParams m_RaftParams;
+
 	TimeMS m_LastCheck;
 	RakNetGUID m_MyGuid;
+	std::string m_strLogFile;
 };
 
 }
